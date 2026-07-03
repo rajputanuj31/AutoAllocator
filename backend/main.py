@@ -108,6 +108,7 @@ async def chat(request: ChatRequest):
     return {
         "thread_id": thread_id,
         "parsed_intent": result.get("parsed_intent"),
+        "candidates":    result.get("candidates", []),
     }
 
 

@@ -1,0 +1,25 @@
+{
+  "agents": [
+    {
+      "agent_id": 7399,
+      "name": "YieldMaximizer",
+      "strategy": "yield",
+      "vault_address": "0x3e5d5189286f0632Ef779953fb73B2e48Fc693c8",
+      "registration_block": 43651803
+    },
+    {
+      "agent_id": 7400,
+      "name": "StableFarmer",
+      "strategy": "yield",
+      "vault_address": "0x3e5d5189286f0632Ef779953fb73B2e48Fc693c8",
+      "registration_block": 43651807
+    },
+    {
+      "agent_id": 7401,
+      "name": "SybilBot",
+      "strategy": "yield",
+      "vault_address": "0x3e5d5189286f0632Ef779953fb73B2e48Fc693c8",
+      "registration_block": 43651811
+    }
+  ]
+}
