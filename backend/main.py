@@ -1,9 +1,13 @@
 import os
+import uuid
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from ai.graph import graph
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -68,12 +72,7 @@ app.add_middleware(
 
 @app.get("/health", tags=["System"])
 async def health_check():
-    """
-    Liveness probe. Returns 200 OK with service metadata.
-
-    Used by Docker Compose and any future deployment orchestrators
-    to confirm the service is alive before routing traffic.
-    """
+    """Liveness probe. Returns 200 OK with service metadata."""
     return {
         "status": "ok",
         "version": APP_VERSION,
@@ -82,9 +81,36 @@ async def health_check():
     }
 
 
-# ---------------------------------------------------------------------------
-# Dev entry point
-# ---------------------------------------------------------------------------
+class ChatRequest(BaseModel):
+    message: str
+    thread_id: str | None = None
+
+
+@app.post("/chat", tags=["Allocator"])
+async def chat(request: ChatRequest):
+    """Accepts a natural language investment intent and runs it through the LangGraph orchestrator."""
+    thread_id = request.thread_id or str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+
+    initial_state = {
+        "user_message": request.message,
+        "parsed_intent": None,
+        "candidates": [],
+        "allocation": [],
+        "tx_results": [],
+    }
+
+    try:
+        result = graph.invoke(initial_state, config=config)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "thread_id": thread_id,
+        "parsed_intent": result.get("parsed_intent"),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
