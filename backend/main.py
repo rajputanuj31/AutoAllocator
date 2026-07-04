@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ai.graph import graph
@@ -88,7 +89,10 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat", tags=["Allocator"])
 async def chat(request: ChatRequest):
-    """Accepts a natural language investment intent and runs it through the LangGraph orchestrator."""
+    """Accepts a natural language investment intent and runs it through the LangGraph orchestrator.
+    Returns HTTP 202 when the graph pauses at the HITL interrupt, awaiting user approval.
+    Returns HTTP 200 with tx_results once the graph completes after /approve.
+    """
     thread_id = request.thread_id or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -105,11 +109,52 @@ async def chat(request: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {
-        "thread_id": thread_id,
+    # Check if the graph paused at the HITL interrupt (before execute node)
+    state_snapshot = graph.get_state(config)
+    is_paused = bool(state_snapshot.next)
+
+    payload = {
+        "thread_id":    thread_id,
         "parsed_intent": result.get("parsed_intent"),
-        "candidates":    result.get("candidates", []),
-        "allocation":    result.get("allocation", []),
+        "candidates":   result.get("candidates", []),
+        "allocation":   result.get("allocation", []),
+        "tx_results":   result.get("tx_results", []),
+        "status":       "awaiting_approval" if is_paused else "completed",
+    }
+
+    # 202 = graph is paused and waiting for human approval
+    # 200 = graph ran to completion (used when re-running after approval)
+    status_code = 202 if is_paused else 200
+    return JSONResponse(content=payload, status_code=status_code)
+
+
+class ApproveRequest(BaseModel):
+    thread_id: str
+
+
+@app.post("/approve", tags=["Allocator"])
+async def approve(request: ApproveRequest):
+    """Resumes the paused LangGraph for a given thread and executes the on-chain USDC transfers."""
+    config = {"configurable": {"thread_id": request.thread_id}}
+
+    # Verify the thread exists and is actually paused
+    state_snapshot = graph.get_state(config)
+    if not state_snapshot.next:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Thread '{request.thread_id}' is not paused or does not exist.",
+        )
+
+    try:
+        # Resume the graph by passing None as the next state update (no state changes, just resume)
+        result = graph.invoke(None, config=config)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "thread_id":  request.thread_id,
+        "tx_results": result.get("tx_results", []),
+        "status":     "completed",
     }
 
 
