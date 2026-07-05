@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import { Zap, LogOut, Wifi, Copy, CheckCheck } from "lucide-react";
+import { Zap, LogOut, Wifi, Copy, CheckCheck, Loader2 } from "lucide-react";
 
 import { ChatWindow, Message } from "@/components/chat/ChatWindow";
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -20,6 +20,10 @@ import {
   getStoredTransactions,
   setStoredTransactions,
   PersistedMessage,
+  PendingApproval,
+  getPendingApproval,
+  setPendingApproval,
+  clearPendingApproval,
 } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
@@ -67,27 +71,127 @@ function AddressBadge({ address }: { address: string }) {
 // Main page
 // ---------------------------------------------------------------------------
 export default function Home() {
-  const { login, authenticated, logout, user } = usePrivy();
+  const { login, authenticated, logout, user, ready } = usePrivy();
 
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
   const [transactions, setTransactions] = useState<TxResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  // tracks whether client-side hydration from localStorage is done
   const [hydrated, setHydrated] = useState(false);
 
   const walletAddress = user?.wallet?.address ?? null;
 
+  const handleApproveSuccess = (results: TxResult[]) => {
+    setTransactions((prev) => [...prev, ...results]);
+    clearPendingApproval();
+    const lines = results
+      .map(
+        (tx) =>
+          `• ${tx.agent_id}: $${tx.amount_usd.toFixed(2)} USDC` +
+          (tx.tx_hash && tx.tx_hash !== "simulated_hash"
+            ? ` — ${tx.tx_hash.slice(0, 10)}…`
+            : "")
+      )
+      .join("\n");
+    const content = `✅ Allocation executed successfully.\n\n${lines}`;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id.startsWith("approval-")
+          ? { id: m.id.replace("approval-", "outcome-"), role: "bot", content }
+          : m
+      )
+    );
+  };
+
+  const handleRejectSuccess = () => {
+    clearPendingApproval();
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id.startsWith("approval-")
+          ? {
+              id: m.id.replace("approval-", "outcome-"),
+              role: "bot",
+              content: "Allocation rejected. No funds were transferred.",
+            }
+          : m
+      )
+    );
+  };
+
+  /** Remove abandoned in-flight flows; keep completed summaries + outcomes. */
+  const stripAbandonedFlows = (msgs: Message[]): Message[] =>
+    msgs.filter((m) => {
+      if (m.id.startsWith("approval-")) return false;
+      if (m.id.startsWith("summary-")) {
+        const tid = m.id.replace("summary-", "");
+        return msgs.some((o) => o.id === `outcome-${tid}`);
+      }
+      return true;
+    });
+
+  const makeApprovalMessages = (
+    pending: PendingApproval
+  ): Message[] => [
+    {
+      id: `summary-${pending.threadId}`,
+      role: "bot",
+      content: pending.summaryLine,
+    },
+    {
+      id: `approval-${pending.threadId}`,
+      role: "bot",
+      content: (
+        <ApprovalCard
+          threadId={pending.threadId}
+          allocation={pending.allocation}
+          agentProfiles={pending.agentProfiles}
+          onApproveSuccess={handleApproveSuccess}
+          onRejectSuccess={handleRejectSuccess}
+        />
+      ),
+    },
+  ];
+
   // -------------------------------------------------------------------------
-  // Hydrate from localStorage after mount (client-only — SSR has no window)
+  // Hydrate from localStorage after mount (client-only)
   // -------------------------------------------------------------------------
   useEffect(() => {
     const storedMsgs = getStoredMessages();
-    if (storedMsgs.length > 0) setMessages(storedMsgs);
-
+    const pending = getPendingApproval();
     const storedTxs = getStoredTransactions();
-    if (storedTxs.length > 0) setTransactions(storedTxs);
 
+    let msgs: Message[] =
+      storedMsgs.length > 0
+        ? storedMsgs
+            .filter(
+              (m) =>
+                !m.id.startsWith("rejected-") && !m.id.startsWith("success-")
+            )
+            .map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+            }))
+        : [WELCOME_MESSAGE];
+
+    if (pending) {
+      const hasApproval = msgs.some((m) => m.id === `approval-${pending.threadId}`);
+      if (!hasApproval) {
+        const hasSummary = msgs.some((m) => m.id === `summary-${pending.threadId}`);
+        if (!hasSummary) {
+          msgs.push({
+            id: `summary-${pending.threadId}`,
+            role: "bot",
+            content: pending.summaryLine,
+          });
+        }
+        msgs.push(...makeApprovalMessages(pending).filter((m) => m.id.startsWith("approval-")));
+      }
+    }
+
+    setMessages(msgs);
+    if (storedTxs.length > 0) setTransactions(storedTxs);
     setHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist messages on every change — only after hydration to avoid
@@ -107,21 +211,23 @@ export default function Home() {
   }, [transactions, hydrated]);
 
   // -------------------------------------------------------------------------
-  // Auth — issue JWT when wallet connects; clear everything on disconnect
+  // Auth — issue JWT when wallet connects (never clear data on refresh)
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (authenticated && walletAddress) {
-      if (!getAuthToken()) {
-        requestAuthToken(walletAddress).catch((err) => {
-          console.error("Auth token request failed:", err);
-        });
-      }
-    } else if (!authenticated) {
-      clearAllSessionData();
-      setMessages([WELCOME_MESSAGE]);
-      setTransactions([]);
+    if (!ready || !authenticated || !walletAddress) return;
+    if (!getAuthToken()) {
+      requestAuthToken(walletAddress).catch((err) => {
+        console.error("Auth token request failed:", err);
+      });
     }
-  }, [authenticated, walletAddress]);
+  }, [ready, authenticated, walletAddress]);
+
+  const handleLogout = () => {
+    clearAllSessionData();
+    setMessages([WELCOME_MESSAGE]);
+    setTransactions([]);
+    logout();
+  };
 
   // -------------------------------------------------------------------------
   // Send message
@@ -156,26 +262,38 @@ export default function Home() {
           ? `Found ${response.allocation.length} agent${response.allocation.length !== 1 ? "s" : ""} for your ${intent.risk_tolerance ?? ""} ${intent.action ?? "investment"} of $${intent.amount_usd?.toFixed(0) ?? "?"} USDC.`
           : `Found ${response.allocation.length} suitable agent${response.allocation.length !== 1 ? "s" : ""}. Review the proposed allocation below.`;
 
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `summary-${Date.now()}`,
-            role: "bot",
-            content: summaryLine,
-          },
-          {
-            id: `approval-${Date.now()}`,
-            role: "bot",
-            content: (
-              <ApprovalCard
-                threadId={response.thread_id}
-                allocation={response.allocation!}
-                onApproveSuccess={handleApproveSuccess}
-                onRejectSuccess={handleRejectSuccess}
-              />
-            ),
-          },
-        ]);
+        const pending: PendingApproval = {
+          threadId: response.thread_id,
+          allocation: response.allocation!,
+          agentProfiles: response.agent_profiles,
+          summaryLine,
+        };
+        setPendingApproval(pending);
+
+        setMessages((prev) => {
+          const cleaned = stripAbandonedFlows(prev);
+          return [
+            ...cleaned,
+            {
+              id: `summary-${response.thread_id}`,
+              role: "bot",
+              content: summaryLine,
+            },
+            {
+              id: `approval-${response.thread_id}`,
+              role: "bot",
+              content: (
+                <ApprovalCard
+                  threadId={response.thread_id}
+                  allocation={response.allocation!}
+                  agentProfiles={response.agent_profiles}
+                  onApproveSuccess={handleApproveSuccess}
+                  onRejectSuccess={handleRejectSuccess}
+                />
+              ),
+            },
+          ];
+        });
       } else if (response.tx_results?.length) {
         setMessages((prev) => [
           ...prev,
@@ -226,17 +344,6 @@ export default function Home() {
     }
   };
 
-  // -------------------------------------------------------------------------
-  // Approval callbacks — the ApprovalCard handles its own API calls;
-  // we only receive the outcome here to update transaction history.
-  // -------------------------------------------------------------------------
-  const handleApproveSuccess = (results: TxResult[]) => {
-    setTransactions((prev) => [...prev, ...results]);
-  };
-
-  const handleRejectSuccess = () => {
-    // No-op — the ApprovalCard already shows the rejected state.
-  };
 
   // -------------------------------------------------------------------------
   // Render
@@ -278,7 +385,7 @@ export default function Home() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={logout}
+                onClick={handleLogout}
                 className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
               >
                 <LogOut className="h-3.5 w-3.5" />
@@ -300,7 +407,12 @@ export default function Home() {
       {/* ---------------------------------------------------------------- */}
       {/* Authenticated: chat + sidebar                                    */}
       {/* ---------------------------------------------------------------- */}
-      {authenticated ? (
+      {!ready ? (
+        <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm">Connecting wallet…</p>
+        </div>
+      ) : authenticated ? (
         <div className="relative z-10 flex flex-1 overflow-hidden">
           {/* Chat panel */}
           <div className="flex flex-1 flex-col overflow-hidden">

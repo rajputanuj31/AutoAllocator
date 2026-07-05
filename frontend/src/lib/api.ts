@@ -7,6 +7,7 @@ const THREAD_KEY = "allocator_thread_id";
 const TOKEN_KEY = "allocator_auth_token";
 const MESSAGES_KEY = "allocator_messages";
 const TRANSACTIONS_KEY = "allocator_transactions";
+const PENDING_APPROVAL_KEY = "allocator_pending_approval";
 
 // ---------------------------------------------------------------------------
 // Thread ID persistence
@@ -88,7 +89,14 @@ export function getStoredTransactions(): TxResult[] {
 
 export function setStoredTransactions(txs: TxResult[]): void {
   if (typeof window !== "undefined") {
-    localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(txs));
+    const seen = new Set<string>();
+    const unique = txs.filter((tx) => {
+      const key = tx.tx_hash || `${tx.agent_id}-${tx.amount_usd}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(unique));
   }
 }
 
@@ -101,6 +109,39 @@ export function clearAllSessionData(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(MESSAGES_KEY);
   localStorage.removeItem(TRANSACTIONS_KEY);
+  localStorage.removeItem(PENDING_APPROVAL_KEY);
+}
+
+// ---------------------------------------------------------------------------
+// Pending approval (survives refresh)
+// ---------------------------------------------------------------------------
+export interface PendingApproval {
+  threadId: string;
+  allocation: AgentAllocation[];
+  agentProfiles?: AgentProfile[];
+  summaryLine: string;
+}
+
+export function getPendingApproval(): PendingApproval | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(PENDING_APPROVAL_KEY);
+    return raw ? (JSON.parse(raw) as PendingApproval) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setPendingApproval(pending: PendingApproval): void {
+  if (typeof window !== "undefined") {
+    localStorage.setItem(PENDING_APPROVAL_KEY, JSON.stringify(pending));
+  }
+}
+
+export function clearPendingApproval(): void {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(PENDING_APPROVAL_KEY);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -133,11 +174,34 @@ export interface TxResult {
   status: "success" | "failed";
 }
 
+export interface AgentReputation {
+  score: number;
+  positive_count: number;
+  negative_count: number;
+  total_count: number;
+  last_feedback_at: string | null;
+}
+
+export interface AgentProfile {
+  agent_id: string;
+  name: string;
+  strategy: string;
+  description: string;
+  vault_address: string;
+  owner: string | null;
+  registered_at: string | null;
+  registration_block: number;
+  reputation: AgentReputation;
+  vault_tvl_usd: number;
+  your_position_usd: number;
+}
+
 export interface ChatResponse {
   thread_id: string;
   parsed_intent?: unknown;
   candidates?: AgentCandidate[];
   allocation?: AgentAllocation[];
+  agent_profiles?: AgentProfile[];
   tx_results?: TxResult[];
   status: "completed" | "awaiting_approval";
 }
@@ -160,6 +224,18 @@ export async function requestAuthToken(walletAddress: string): Promise<string> {
   const data = await res.json() as { token: string };
   setAuthToken(data.token);
   return data.token;
+}
+
+/** Fetch a single agent profile (optional — profiles also come with /chat). */
+export async function getAgentProfile(agentId: string): Promise<AgentProfile> {
+  const res = await fetch(`${API_URL}/agents/${agentId}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { detail?: string };
+    throw new Error(err.detail ?? "Failed to load agent profile");
+  }
+  return res.json();
 }
 
 /** Send a chat message. Thread ID is persisted automatically. */

@@ -26,6 +26,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from web3 import Web3
 
+sys.path.insert(0, str(Path(__file__).parent))
+from vaults import get_or_create_vault_accounts
+
 load_dotenv(Path(__file__).parent.parent / "backend" / ".env")
 
 IDENTITY_REGISTRY_ADDRESS  = "0x8004A818BFB912233c491871b3d84c89A494BD9e"
@@ -40,9 +43,8 @@ REPUTATION_ABI = json.loads(
 
 CONFIG_OUTPUT = Path(__file__).parent / "agents_config.json"
 
-# Vault addresses: in a real deployment these would be smart contract vaults.
-# For testing we use the deployer address itself (funds go back to you).
-MOCK_VAULT_PLACEHOLDER = "DEPLOYER_ADDRESS"
+# Vault addresses: one dedicated EOA per agent (see scripts/vaults.py).
+# Keys are stored in scripts/vault_keys.json (gitignored).
 
 AGENTS = [
     {
@@ -140,13 +142,18 @@ def main():
     identity   = w3.eth.contract(address=Web3.to_checksum_address(IDENTITY_REGISTRY_ADDRESS),  abi=IDENTITY_ABI)
     reputation = w3.eth.contract(address=Web3.to_checksum_address(REPUTATION_REGISTRY_ADDRESS), abi=REPUTATION_ABI)
 
+    vault_accounts = get_or_create_vault_accounts([a["name"] for a in AGENTS])
+    print("\nPer-agent vault EOAs:")
+    for name, acct in vault_accounts.items():
+        print(f"  {name:16} → {acct.address}")
+
     registered = []
 
     for agent in AGENTS:
         print(f"\n{'='*60}")
         print(f"  Registering: {agent['name']}")
 
-        vault_address = account.address
+        vault_address = vault_accounts[agent["name"]].address
         agent_uri = build_agent_uri(agent, vault_address)
 
         receipt = send_tx(w3, identity.functions.register(agent_uri), account)
@@ -201,7 +208,7 @@ def main():
     CONFIG_OUTPUT.write_text(json.dumps(config, indent=2))
     print(f"\n{'='*60}")
     print(f"  agents_config.json saved to {CONFIG_OUTPUT}")
-    print(f"\n  View your agents on 8004scan: https://8004scan.io")
+    print(f"\n  Vault keys saved to scripts/vault_keys.json (gitignored)")
     print(f"  Verify on BaseScan: https://sepolia.basescan.org")
     print(f"{'='*60}\n")
 

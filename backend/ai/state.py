@@ -28,6 +28,7 @@ class TxResult(TypedDict):
 
 class AllocatorState(TypedDict):
     user_message: str                    # raw natural language input from the user
+    wallet_address: str                  # JWT-authenticated wallet for this session
     parsed_intent: Optional[ParsedIntent]  # structured intent extracted by the LLM
     candidates: list[dict]               # agents returned by the discovery node
     allocation: list[AgentAllocation]    # final capital split after filtering

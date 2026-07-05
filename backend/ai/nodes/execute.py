@@ -4,6 +4,7 @@ import os
 from fastapi import HTTPException
 
 from ai.state import AllocatorState, TxResult
+from db import ledger
 
 USDC_TOKEN = "usdc"
 NETWORK    = "base-sepolia"
@@ -106,6 +107,7 @@ async def _execute_transfers(allocation: list[dict]) -> list[TxResult]:
 def execute_node(state: AllocatorState) -> dict:
     """LangGraph node: executes on-chain USDC transfers via Coinbase CDP SDK."""
     allocation = state.get("allocation", [])
+    wallet_address = state.get("wallet_address", "")
 
     if not allocation:
         raise HTTPException(
@@ -114,4 +116,22 @@ def execute_node(state: AllocatorState) -> dict:
         )
 
     tx_results = _run_async(_execute_transfers(allocation))
+
+    for tx in tx_results:
+        if tx["status"] != "success" or not tx.get("tx_hash"):
+            continue
+        agent = next(
+            (a for a in allocation if str(a["agent_id"]) == str(tx["agent_id"])),
+            None,
+        )
+        if agent and wallet_address:
+            ledger.record_deposit(
+                wallet_address=wallet_address,
+                agent_id=str(agent["agent_id"]),
+                agent_name=agent["name"],
+                vault_address=agent.get("vault_address", ""),
+                amount_usd=tx["amount_usd"],
+                tx_hash=tx["tx_hash"],
+            )
+
     return {"tx_results": tx_results}

@@ -13,17 +13,13 @@ export interface Message {
 
 function TypingIndicator() {
   return (
-    <div className="flex items-center gap-1 px-1 py-0.5">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50"
-          style={{
-            animation: "dot-bounce 1.2s ease-in-out infinite",
-            animationDelay: `${i * 180}ms`,
-          }}
-        />
-      ))}
+    <div className="flex items-center gap-3 py-0.5">
+      <div className="typing-dots" aria-hidden="true">
+        <span className="typing-dot" />
+        <span className="typing-dot" />
+        <span className="typing-dot" />
+      </div>
+      <span className="text-xs text-foreground/60">Analyzing agents…</span>
     </div>
   );
 }
@@ -63,6 +59,7 @@ export function ChatWindow({ messages }: { messages: Message[] }) {
                 msg.role === "user"
                   ? "rounded-tr-sm bg-primary text-primary-foreground shadow-[0_0_20px_oklch(0.62_0.22_264_/_0.25)]"
                   : "rounded-tl-sm bg-card text-card-foreground ring-1 ring-border/50",
+                msg.isLoading ? "min-w-[160px] typing-bubble" : "",
               ].join(" ")}
             >
               {msg.isLoading ? (

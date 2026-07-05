@@ -3,10 +3,12 @@
 import { useState } from "react";
 import {
   AgentAllocation,
+  AgentProfile,
   TxResult,
   postApprove,
   postCancel,
 } from "@/lib/api";
+import { AgentDetailPanel } from "@/components/chat/AgentDetailPanel";
 import { Button } from "@/components/ui/button";
 import {
   CheckCircle2,
@@ -15,6 +17,8 @@ import {
   Loader2,
   ExternalLink,
   AlertCircle,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 type CardState = "pending" | "approving" | "approved" | "rejected" | "error";
@@ -22,6 +26,7 @@ type CardState = "pending" | "approving" | "approved" | "rejected" | "error";
 interface ApprovalCardProps {
   threadId: string;
   allocation: AgentAllocation[];
+  agentProfiles?: AgentProfile[];
   /** Called after on-chain transactions succeed — parent uses this to update tx history. */
   onApproveSuccess: (results: TxResult[]) => void;
   /** Called after the user rejects — parent can react if needed. */
@@ -32,35 +37,79 @@ interface ApprovalCardProps {
 // Sub-views
 // ---------------------------------------------------------------------------
 
-function AllocationRow({ agent }: { agent: AgentAllocation }) {
+function AllocationRow({
+  agent,
+  profile,
+}: {
+  agent: AgentAllocation;
+  profile?: AgentProfile;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-border/20 last:border-0">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground truncate">{agent.name}</p>
-          <span className="mt-0.5 inline-block text-[10px] font-semibold uppercase tracking-wide text-primary/70 bg-primary/10 rounded-full px-2 py-px">
-            {agent.strategy}
-          </span>
-        </div>
-      </div>
-      <div className="flex items-center gap-3 shrink-0 ml-4">
-        {/* Allocation bar */}
-        <div className="hidden sm:flex items-center gap-1.5">
-          <div className="w-16 h-1 rounded-full bg-border/60 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${agent.percentage}%` }}
-            />
+    <div className="border-b border-border/20 last:border-0 py-2.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground truncate">{agent.name}</p>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <span className="inline-block text-[10px] font-semibold uppercase tracking-wide text-primary/70 bg-primary/10 rounded-full px-2 py-px">
+                {agent.strategy}
+              </span>
+              {profile && (
+                <span className="text-[10px] text-muted-foreground">
+                  Score {profile.reputation.score}
+                </span>
+              )}
+            </div>
           </div>
-          <span className="text-xs text-muted-foreground w-7 text-right">
-            {agent.percentage.toFixed(0)}%
+        </div>
+        <div className="flex items-center gap-3 shrink-0 ml-4">
+          <div className="hidden sm:flex items-center gap-1.5">
+            <div className="w-16 h-1 rounded-full bg-border/60 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${agent.percentage}%` }}
+              />
+            </div>
+            <span className="text-xs text-muted-foreground w-7 text-right">
+              {agent.percentage.toFixed(0)}%
+            </span>
+          </div>
+          <span className="text-sm font-semibold text-foreground tabular-nums">
+            ${agent.amount_usd.toFixed(2)}
           </span>
         </div>
-        <span className="text-sm font-semibold text-foreground tabular-nums">
-          ${agent.amount_usd.toFixed(2)}
-        </span>
       </div>
+
+      {profile && (
+        <>
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="mt-2 flex items-center gap-1 text-[11px] text-primary/80 hover:text-primary transition-colors"
+          >
+            {expanded ? (
+              <>
+                <ChevronUp className="h-3 w-3" />
+                Hide details
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-3 w-3" />
+                View agent details
+              </>
+            )}
+          </button>
+          {expanded && (
+            <AgentDetailPanel
+              profile={profile}
+              allocationPercentage={agent.percentage}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -85,6 +134,7 @@ function SkeletonRow() {
 export function ApprovalCard({
   threadId,
   allocation,
+  agentProfiles = [],
   onApproveSuccess,
   onRejectSuccess,
 }: ApprovalCardProps) {
@@ -93,6 +143,10 @@ export function ApprovalCard({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const totalAmount = allocation.reduce((acc, a) => acc + a.amount_usd, 0);
+
+  const profileByAgentId = Object.fromEntries(
+    agentProfiles.map((p) => [p.agent_id, p])
+  );
 
   const handleApprove = async () => {
     setCardState("approving");
@@ -145,7 +199,11 @@ export function ApprovalCard({
         {/* Rows */}
         <div className="px-5 py-1">
           {allocation.map((agent) => (
-            <AllocationRow key={agent.agent_id} agent={agent} />
+            <AllocationRow
+              key={agent.agent_id}
+              agent={agent}
+              profile={profileByAgentId[agent.agent_id]}
+            />
           ))}
         </div>
 

@@ -5,6 +5,8 @@
 # --- Python (backend/) -------------------------------------------------------
 backend/venv/
 backend/.env
+backend/db/allocator.db
+scripts/vault_keys.json
 __pycache__/
 *.py[cod]
 *.pyo
