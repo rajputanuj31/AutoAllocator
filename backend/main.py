@@ -16,6 +16,7 @@ from ai.services.agent_profile import (
     build_profiles_for_agents,
     build_profiles_from_candidates,
 )
+from ai.services.verify_transfer import verify_usdc_transfer
 from db import ledger
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,7 @@ app = FastAPI(
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://main.dfetpm59rfi7r.amplifyapp.com",
 ]
 
 app.add_middleware(
@@ -296,6 +298,7 @@ async def chat(
     initial_state = {
         "user_message": request.message,
         "wallet_address": wallet,
+        "flow_type": "invest",
         "parsed_intent": None,
         "candidates": [],
         "allocation": [],
@@ -316,6 +319,8 @@ async def chat(
 
     payload = {
         "thread_id": thread_id,
+        "flow_type": result.get("flow_type", "invest"),
+        "destination_wallet": wallet if result.get("flow_type") == "withdraw" else None,
         "parsed_intent": result.get("parsed_intent"),
         "candidates": result.get("candidates", []),
         "allocation": result.get("allocation", []),
@@ -331,11 +336,92 @@ class ApproveRequest(BaseModel):
     thread_id: str
 
 
+class InvestConfirmTx(BaseModel):
+    agent_id: str
+    tx_hash: str
+    amount_usd: float
+
+
+class InvestConfirmRequest(BaseModel):
+    thread_id: str
+    tx_results: list[InvestConfirmTx]
+
+
+@app.post("/invest/confirm", tags=["Allocator"])
+async def invest_confirm(
+    request: InvestConfirmRequest,
+    token_data: dict = Depends(verify_token),
+):
+    """Verify wallet-signed USDC transfers and record deposits."""
+    wallet = _wallet_from_token(token_data)
+
+    if request.thread_id in _cancelled_threads:
+        raise HTTPException(status_code=400, detail="Thread has been cancelled.")
+
+    _verify_thread_access(request.thread_id, wallet)
+
+    config = _graph_config(request.thread_id)
+    snapshot = graph.get_state(config)
+    if not snapshot.next or "execute_invest" not in snapshot.next:
+        raise HTTPException(status_code=400, detail="Thread is not awaiting invest confirmation.")
+
+    values = snapshot.values or {}
+    allocation = values.get("allocation") or []
+    if not allocation:
+        raise HTTPException(status_code=400, detail="No allocation found for this thread.")
+
+    alloc_by_id = {str(a["agent_id"]): a for a in allocation}
+    verified: list[dict] = []
+
+    for tx in request.tx_results:
+        agent = alloc_by_id.get(str(tx.agent_id))
+        if not agent:
+            raise HTTPException(status_code=400, detail=f"Unknown agent_id {tx.agent_id}.")
+
+        verify_usdc_transfer(
+            tx_hash=tx.tx_hash,
+            expected_from=wallet,
+            expected_to=agent["vault_address"],
+            expected_amount_usd=float(tx.amount_usd),
+        )
+        verified.append({
+            "agent_id": str(tx.agent_id),
+            "tx_hash": tx.tx_hash,
+            "amount_usd": float(tx.amount_usd),
+            "status": "success",
+        })
+
+    expected_ids = {str(a["agent_id"]) for a in allocation}
+    submitted_ids = {str(t.agent_id) for t in request.tx_results}
+    if submitted_ids != expected_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Must submit one successful transfer per agent in the allocation.",
+        )
+
+    graph.update_state(config, {"tx_results": verified})
+
+    try:
+        result = graph.invoke(None, config=config)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "thread_id": request.thread_id,
+        "flow_type": "invest",
+        "tx_results": result.get("tx_results", verified),
+        "status": "completed",
+    }
+
+
 @app.post("/approve", tags=["Allocator"])
 async def approve(
     request: ApproveRequest,
     token_data: dict = Depends(verify_token),
 ):
+    """Resume a paused withdraw flow (invest uses POST /invest/confirm)."""
     wallet = _wallet_from_token(token_data)
 
     if request.thread_id in _cancelled_threads:
@@ -354,6 +440,12 @@ async def approve(
             detail=f"Thread '{request.thread_id}' is not paused or does not exist.",
         )
 
+    if "execute_withdraw" not in state_snapshot.next:
+        raise HTTPException(
+            status_code=400,
+            detail="Invest allocations are confirmed via wallet transfers at POST /invest/confirm.",
+        )
+
     try:
         result = graph.invoke(None, config=config)
     except HTTPException:
@@ -363,6 +455,7 @@ async def approve(
 
     return {
         "thread_id": request.thread_id,
+        "flow_type": result.get("flow_type", "withdraw"),
         "tx_results": result.get("tx_results", []),
         "status": "completed",
     }

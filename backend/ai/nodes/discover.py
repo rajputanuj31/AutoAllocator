@@ -12,8 +12,7 @@ AGENTS_CONFIG_PATH = Path(__file__).parent.parent.parent.parent / "scripts" / "a
 def _load_agents_config() -> list[dict]:
     if not AGENTS_CONFIG_PATH.exists():
         raise FileNotFoundError(
-            f"agents_config.json not found at {AGENTS_CONFIG_PATH}. "
-            "Run scripts/register_agents.py first."
+            "agents_config.json not found. Ensure scripts/agents_config.json exists."
         )
     with open(AGENTS_CONFIG_PATH) as f:
         data = json.load(f)

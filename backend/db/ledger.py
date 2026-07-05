@@ -105,6 +105,60 @@ def get_wallet_position_usd(wallet_address: str, agent_id: str) -> float:
     return float(row["total"]) if row else 0.0
 
 
+def record_withdraw(
+    *,
+    wallet_address: str,
+    agent_id: str,
+    agent_name: str,
+    vault_address: str,
+    amount_usd: float,
+    tx_hash: str,
+) -> None:
+    """Apply a withdraw against active position rows (FIFO) and log events."""
+    wallet = wallet_address.lower()
+    remaining = round(amount_usd, 6)
+    now = _now()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, amount_usd
+            FROM positions
+            WHERE wallet_address = ? AND agent_id = ? AND status = 'active'
+            ORDER BY created_at ASC
+            """,
+            (wallet, str(agent_id)),
+        ).fetchall()
+
+        for row in rows:
+            if remaining <= 1e-9:
+                break
+            pos_id = int(row["id"])
+            pos_amt = float(row["amount_usd"])
+            take = min(remaining, pos_amt)
+            remaining -= take
+
+            if take >= pos_amt - 1e-9:
+                conn.execute(
+                    "UPDATE positions SET status = 'closed', updated_at = ? WHERE id = ?",
+                    (now, pos_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE positions SET amount_usd = ?, updated_at = ? WHERE id = ?",
+                    (round(pos_amt - take, 6), now, pos_id),
+                )
+
+            conn.execute(
+                """
+                INSERT INTO position_events (position_id, event_type, amount_usd, tx_hash, created_at)
+                VALUES (?, 'withdraw', ?, ?, ?)
+                """,
+                (pos_id, take, tx_hash, now),
+            )
+
+        conn.commit()
+
+
 def get_portfolio(wallet_address: str) -> list[dict]:
     """Aggregated active positions per agent for a wallet."""
     wallet = wallet_address.lower()

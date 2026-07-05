@@ -18,6 +18,10 @@ class IntentSchema(BaseModel):
     strategy: str = Field(
         description="The investment strategy. One of: 'yield' (stable income), 'growth' (capital appreciation), 'stable' (capital preservation)."
     )
+    target_agent: str = Field(
+        default="",
+        description="For withdraw/rebalance: specific agent name (e.g. 'YieldMaximizer'). Leave empty to act on all held positions.",
+    )
 
 
 SYSTEM_PROMPT = """You are an intent parser for a DeFi capital allocation system.
@@ -27,7 +31,10 @@ Your job is to extract structured investment intent from a user's natural langua
 Rules:
 - If the user mentions "safe", "stable income", or "yield farming", set strategy to "yield" and risk_tolerance to "low".
 - If the user mentions "growth", "moonshot", or "aggressive", set strategy to "growth" and risk_tolerance to "high".
-- If the user does not specify an amount, default amount_usd to 0 and the frontend will prompt them.
+- If the user wants to pull funds back, redeem, or exit, set action to "withdraw".
+- For withdraw: set amount_usd to the requested amount; if they say "all" or "everything", set amount_usd to 0.
+- For withdraw targeting one agent, set target_agent to the agent name mentioned; otherwise leave target_agent empty.
+- If the user does not specify an amount for invest, default amount_usd to 0 and the frontend will prompt them.
 - Always return valid JSON matching the schema. Never guess beyond what the user said.
 """
 
@@ -43,6 +50,8 @@ def intent_node(state: AllocatorState) -> dict:
         "amount_usd": result.amount_usd,
         "risk_tolerance": result.risk_tolerance,
         "strategy": result.strategy,
+        "target_agent": (result.target_agent or "").strip(),
     }
 
-    return {"parsed_intent": parsed}
+    flow_type = "withdraw" if parsed["action"] == "withdraw" else "invest"
+    return {"parsed_intent": parsed, "flow_type": flow_type}

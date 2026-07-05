@@ -14,9 +14,6 @@ langgraph==0.2.60
 langchain-openai==0.2.14
 langchain-core==0.3.86
 
-# Coinbase CDP SDK (on-chain USDC transfers via AgentKit)
-cdp-sdk==1.47.1
-
 # Auth
 PyJWT==2.10.1
 
