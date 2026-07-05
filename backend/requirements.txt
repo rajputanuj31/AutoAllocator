@@ -17,6 +17,9 @@ langchain-core==0.3.86
 # Coinbase CDP SDK (on-chain USDC transfers via AgentKit)
 cdp-sdk==1.47.1
 
+# Auth
+PyJWT==2.10.1
+
 # Testing
 pytest==8.3.4
 pytest-asyncio==0.24.0
