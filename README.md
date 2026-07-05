@@ -1,26 +1,26 @@
 # AutoAllocator
 
-**A fund of agents for DeFi.**
+**Chat your goal. AI splits your USDC across on-chain DeFi agents — you approve every move.**
 
-Tell it what you want in plain English — it finds reputation-verified agents on Base Sepolia, proposes a USDC split, and executes only after you approve.
+Tell it what you want in plain English. It finds reputation-verified agents on Base Sepolia, proposes an allocation, and only executes after you sign from your wallet.
 
 **[Try it live →](https://main.dfetpm59rfi7r.amplifyapp.com/)**
 
 | | |
 |---|---|
-| Frontend | Amplify |
+| Frontend | [Amplify](https://main.dfetpm59rfi7r.amplifyapp.com/) |
 | Backend | EC2 · Base Sepolia testnet |
 
 ---
 
 ## What it does
 
-1. You connect a wallet and describe a goal — *"Earn yield on 5 USDC safely"*
-2. The AI discovers ERC-8004 agents, filters by reputation, and allocates across vaults
-3. You review the plan, sign USDC transfers from your wallet, and track positions in a portfolio view
+1. Connect your wallet and describe a goal — *"Earn yield on 5 USDC safely"*
+2. AI discovers ERC-8004 agents, filters by reputation, and proposes a USDC split across vaults
+3. You review the plan, sign transfers from your wallet, and track positions in the portfolio view
 4. Withdraw anytime — *"Withdraw 3 USDC from StableFarmer"*
 
-Your keys stay yours. Nothing moves without approval.
+Your keys stay yours. Nothing moves without your approval.
 
 ---
 
@@ -69,4 +69,4 @@ scripts/     Agent config (vault addresses)
 
 ---
 
-Built for exploring reputation-gated capital routing — where agents earn trust on-chain, and humans stay in the loop.
+Reputation-gated capital routing on Base Sepolia — agents earn trust on-chain, humans stay in the loop.

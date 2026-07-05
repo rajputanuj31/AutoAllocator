@@ -17,8 +17,9 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "AutoAllocator — A Fund of Agents",
-  description: "Reputation-Gated Capital Router via ERC-8004",
+  title: "AutoAllocator — AI DeFi Capital Router",
+  description:
+    "Chat your goal. AI allocates USDC across reputation-verified ERC-8004 agents on Base Sepolia — you approve every move.",
 };
 
 export default function RootLayout({

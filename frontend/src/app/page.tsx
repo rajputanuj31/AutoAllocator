@@ -498,12 +498,12 @@ export default function Home() {
 
             {/* Headline */}
             <h1 className="mb-3 text-3xl font-semibold leading-tight tracking-tight text-foreground">
-              DeFi capital,<br />routed by AI.
+              Tell it your goal.<br />It finds the agents.
             </h1>
             <p className="mb-8 text-sm leading-relaxed text-muted-foreground">
-              Describe your goal in plain English. AutoAllocator finds
-              reputation-verified agents on Base Sepolia, proposes an
-              allocation across vaults, and executes only after you approve.
+              Chat in plain English. AutoAllocator discovers reputation-verified
+              agents on Base Sepolia, proposes a USDC split across vaults, and
+              only moves funds after you approve and sign.
             </p>
 
             {/* Steps */}
