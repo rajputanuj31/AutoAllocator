@@ -14,13 +14,8 @@ cd "$ROOT/backend"
 source venv/bin/activate
 pip install -r requirements.txt -q
 
-echo "==> Frontend..."
-cd "$ROOT/frontend"
-npm ci --silent
-npm run build
-
-echo "==> Restarting services..."
-sudo systemctl restart autoallocator autoallocator-web
+echo "==> Restarting backend..."
+sudo systemctl restart autoallocator
 
 echo "==> Done. $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 curl -sf http://127.0.0.1:8002/health && echo "" || echo "WARN: health check failed"

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import { Zap, LogOut, Wifi, Copy, CheckCheck, Loader2 } from "lucide-react";
+import { Zap, LogOut, Copy, CheckCheck, Loader2, MessageSquare, BarChart2 } from "lucide-react";
 
 import { ChatWindow, Message } from "@/components/chat/ChatWindow";
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -54,7 +54,7 @@ function AddressBadge({ address }: { address: string }) {
   return (
     <button
       onClick={copy}
-      className="flex items-center gap-1.5 rounded-lg border border-border/30 bg-secondary/60 px-2.5 py-1.5 text-xs font-mono text-muted-foreground transition-colors hover:border-border/60 hover:text-foreground"
+      className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-mono text-muted-foreground transition-colors hover:text-foreground"
     >
       {shortenAddress(address)}
       {copied ? (
@@ -76,6 +76,15 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [portfolioRefresh, setPortfolioRefresh] = useState(0);
+  const [mobileTab, setMobileTab] = useState<"chat" | "portfolio">("chat");
+  const [privyTimedOut, setPrivyTimedOut] = useState(false);
+
+  // If Privy hasn't initialized after 4s (e.g. invalid_origin), fall through to landing
+  useEffect(() => {
+    if (ready) return;
+    const t = setTimeout(() => setPrivyTimedOut(true), 4000);
+    return () => clearTimeout(t);
+  }, [ready]);
 
   const walletAddress = user?.wallet?.address ?? null;
 
@@ -374,56 +383,38 @@ export default function Home() {
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
+  const portfolioEnabled = ready && !!walletAddress;
+
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-background">
-      {/* Ambient glow behind everything */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 left-1/2 h-[600px] w-[800px] -translate-x-1/2 rounded-full bg-primary/8 blur-[120px]" />
-        <div className="absolute bottom-0 right-0 h-[400px] w-[400px] rounded-full bg-accent/6 blur-[100px]" />
-      </div>
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-background">
 
       {/* ---------------------------------------------------------------- */}
       {/* Header                                                           */}
       {/* ---------------------------------------------------------------- */}
-      <header className="relative z-10 flex items-center justify-between border-b border-border/25 bg-background/60 px-4 py-3 backdrop-blur-md">
-        {/* Logo */}
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/25">
-            <Zap className="h-4 w-4 text-primary" />
-          </div>
-          <span className="text-sm font-semibold gradient-text">AutoAllocator</span>
+      <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <Zap className="h-3.5 w-3.5 text-foreground/70" />
+          <span className="text-[13px] font-semibold tracking-tight">AutoAllocator</span>
         </div>
 
-        {/* Right side */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {authenticated && walletAddress ? (
             <>
-              {/* Network pill */}
-              <div className="hidden sm:flex items-center gap-1.5 rounded-lg border border-border/30 bg-secondary/50 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground">
-                <Wifi className="h-2.5 w-2.5 text-green-400" />
+              <div className="hidden sm:flex items-center gap-1.5 rounded border border-border px-2 py-1 text-[11px] text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
                 Base Sepolia
               </div>
-
-              {/* Wallet address */}
               <AddressBadge address={walletAddress} />
-
-              {/* Logout */}
-              <Button
-                variant="ghost"
-                size="sm"
+              <button
                 onClick={handleLogout}
-                className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
               >
-                <LogOut className="h-3.5 w-3.5" />
+                <LogOut className="h-3 w-3" />
                 <span className="hidden sm:inline">Disconnect</span>
-              </Button>
+              </button>
             </>
           ) : (
-            <Button
-              onClick={login}
-              size="sm"
-              className="h-8 px-4 text-xs bg-primary text-primary-foreground glow-primary hover:bg-primary/90 transition-all"
-            >
+            <Button onClick={login} size="sm" className="h-7 px-3 text-xs">
               Connect Wallet
             </Button>
           )}
@@ -431,77 +422,112 @@ export default function Home() {
       </header>
 
       {/* ---------------------------------------------------------------- */}
-      {/* Authenticated: chat + sidebar                                    */}
+      {/* States                                                           */}
       {/* ---------------------------------------------------------------- */}
-      {!ready ? (
-        <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm">Connecting wallet…</p>
+      {!ready && !privyTimedOut ? (
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
+
       ) : authenticated ? (
-        <div className="relative z-10 flex flex-1 overflow-hidden">
-          {/* Chat panel */}
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <ChatWindow messages={messages} />
-            <div className="border-t border-border/20 bg-background/50 backdrop-blur-sm">
-              <ChatInput onSendMessage={handleSendMessage} disabled={isLoading} />
+        <>
+          {/* ---- Main content area ---- */}
+          <div className="flex flex-1 overflow-hidden">
+
+            {/* Chat — full width on mobile; 50% on desktop */}
+            <div className={[
+              "flex flex-col overflow-hidden",
+              mobileTab === "chat" ? "flex-1" : "hidden",
+              "md:flex md:w-1/2 md:shrink-0",
+            ].join(" ")}>
+              <ChatWindow messages={messages} />
+              <div className="shrink-0 border-t border-border">
+                <ChatInput onSendMessage={handleSendMessage} disabled={isLoading} />
+              </div>
+            </div>
+
+            {/* Portfolio — full width on mobile; 50% on desktop */}
+            <div className={[
+              "flex flex-col overflow-hidden border-border",
+              mobileTab === "portfolio" ? "flex-1 flex" : "hidden",
+              "md:flex md:w-1/2 md:shrink-0 md:border-l",
+            ].join(" ")}>
+              <PortfolioView refreshTrigger={portfolioRefresh} enabled={portfolioEnabled} />
             </div>
           </div>
 
-          {/* Portfolio sidebar */}
-          <aside className="hidden w-72 shrink-0 flex-col border-l border-border/20 bg-background/30 backdrop-blur-sm md:flex">
-            <PortfolioView
-              refreshTrigger={portfolioRefresh}
-              enabled={ready && !!walletAddress}
-            />
-          </aside>
-        </div>
+          {/* ---- Mobile bottom tab bar (hidden on desktop) ---- */}
+          <nav className="flex shrink-0 border-t border-border md:hidden">
+            <button
+              onClick={() => setMobileTab("chat")}
+              className={[
+                "flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors",
+                mobileTab === "chat" ? "text-foreground" : "text-muted-foreground",
+              ].join(" ")}
+            >
+              <MessageSquare className="h-4.5 w-4.5 h-[18px] w-[18px]" />
+              Chat
+            </button>
+            <button
+              onClick={() => setMobileTab("portfolio")}
+              className={[
+                "flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors",
+                mobileTab === "portfolio" ? "text-foreground" : "text-muted-foreground",
+              ].join(" ")}
+            >
+              <BarChart2 className="h-[18px] w-[18px]" />
+              Portfolio
+            </button>
+          </nav>
+        </>
+
       ) : (
         /* ---------------------------------------------------------------- */
-        /* Landing / unauthenticated                                        */
+        /* Landing                                                          */
         /* ---------------------------------------------------------------- */
-        <div className="relative z-10 flex flex-1 flex-col items-center justify-center p-6">
-          <div className="w-full max-w-sm text-center">
-            {/* Icon */}
-            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/25 shadow-[0_0_40px_oklch(0.62_0.22_264_/_0.20)]">
-              <Zap className="h-8 w-8 text-primary" />
+        <div className="flex flex-1 flex-col items-center justify-center px-6 py-12">
+          <div className="w-full max-w-sm">
+
+            {/* Logo mark */}
+            <div className="mb-8 flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-border">
+                <Zap className="h-4 w-4" />
+              </div>
+              <span className="text-sm font-semibold">AutoAllocator</span>
             </div>
 
-            <h1 className="mb-2 text-2xl font-semibold text-foreground">
-              AI-Powered Capital Router
+            {/* Headline */}
+            <h1 className="mb-3 text-3xl font-semibold leading-tight tracking-tight text-foreground">
+              DeFi capital,<br />routed by AI.
             </h1>
             <p className="mb-8 text-sm leading-relaxed text-muted-foreground">
-              Describe your investment goal in plain English. AutoAllocator
-              discovers reputation-verified agents on Base Sepolia, proposes an
-              allocation, and executes USDC transfers with your approval.
+              Describe your goal in plain English. AutoAllocator finds
+              reputation-verified agents on Base Sepolia, proposes an
+              allocation across vaults, and executes only after you approve.
             </p>
 
-            {/* Feature grid */}
-            <div className="mb-8 grid grid-cols-3 gap-2 text-left">
+            {/* Steps */}
+            <ol className="mb-8 space-y-3">
               {[
-                { icon: "🔍", title: "Discover", desc: "ERC-8004 on-chain agents" },
-                { icon: "⭐", title: "Filter", desc: "Reputation score ≥ 400" },
-                { icon: "⚡", title: "Execute", desc: "USDC from your wallet" },
-              ].map((f) => (
-                <div
-                  key={f.title}
-                  className="rounded-xl border border-border/25 bg-card/50 p-3"
-                >
-                  <div className="mb-1 text-base">{f.icon}</div>
-                  <p className="text-xs font-semibold text-foreground">{f.title}</p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">{f.desc}</p>
-                </div>
+                { n: "1", text: "Connect your wallet" },
+                { n: "2", text: "Describe your investment goal" },
+                { n: "3", text: "Review allocation & sign USDC transfers" },
+              ].map((s) => (
+                <li key={s.n} className="flex items-center gap-3 text-sm">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border text-[10px] font-semibold text-muted-foreground">
+                    {s.n}
+                  </span>
+                  <span className="text-muted-foreground">{s.text}</span>
+                </li>
               ))}
-            </div>
+            </ol>
 
-            <Button
-              onClick={login}
-              className="h-11 w-full bg-primary text-primary-foreground text-sm font-medium shadow-[0_0_30px_oklch(0.62_0.22_264_/_0.40)] hover:shadow-[0_0_40px_oklch(0.62_0.22_264_/_0.55)] hover:bg-primary/90 transition-all"
-            >
-              Connect Wallet to Start
+            {/* CTA */}
+            <Button onClick={login} className="h-11 w-full text-sm font-medium">
+              Connect Wallet
             </Button>
 
-            <p className="mt-3 text-[10px] text-muted-foreground/40">
+            <p className="mt-4 text-[11px] text-muted-foreground/40 text-center">
               Testnet only · Base Sepolia · No real funds at risk
             </p>
           </div>
