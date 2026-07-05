@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from ai.graph import graph
 from ai.services.agent_profile import (
     build_agent_profile,
+    build_profiles_for_agents,
     build_profiles_from_candidates,
 )
 from db import ledger
@@ -198,6 +199,78 @@ async def get_agent(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Routes — Portfolio
+# ---------------------------------------------------------------------------
+
+@app.get("/portfolio", tags=["Portfolio"])
+async def get_portfolio(token_data: dict = Depends(verify_token)):
+    """Aggregated active positions for the authenticated wallet."""
+    wallet = _wallet_from_token(token_data)
+    rows = ledger.get_portfolio(wallet)
+
+    agent_ids = [r["agent_id"] for r in rows]
+    profiles_by_id = {
+        p["agent_id"]: p for p in build_profiles_for_agents(agent_ids, wallet)
+    }
+
+    positions = []
+    total_usd = 0.0
+    for row in rows:
+        agent_id = str(row["agent_id"])
+        profile = profiles_by_id.get(agent_id, {})
+        amount = float(row["amount_usd"])
+        total_usd += amount
+        positions.append({
+            "agent_id": agent_id,
+            "agent_name": row["agent_name"],
+            "strategy": profile.get("strategy", ""),
+            "vault_address": row["vault_address"],
+            "amount_usd": round(amount, 2),
+            "deposit_count": int(row["deposit_count"]),
+            "last_deposit_at": row["last_deposit_at"],
+            "reputation_score": profile.get("reputation", {}).get("score"),
+            "vault_tvl_usd": profile.get("vault_tvl_usd", 0.0),
+        })
+
+    return {
+        "wallet_address": wallet,
+        "total_usd": round(total_usd, 2),
+        "position_count": len(positions),
+        "positions": positions,
+    }
+
+
+@app.get("/portfolio/history", tags=["Portfolio"])
+async def get_portfolio_history(
+    token_data: dict = Depends(verify_token),
+    limit: int = 100,
+):
+    """Transaction history derived from the position ledger."""
+    wallet = _wallet_from_token(token_data)
+    limit = max(1, min(limit, 500))
+    events = ledger.get_position_history(wallet, limit=limit)
+
+    return {
+        "wallet_address": wallet,
+        "event_count": len(events),
+        "events": [
+            {
+                "id": e["id"],
+                "event_type": e["event_type"],
+                "agent_id": str(e["agent_id"]),
+                "agent_name": e["agent_name"],
+                "vault_address": e["vault_address"],
+                "amount_usd": round(float(e["amount_usd"]), 2),
+                "tx_hash": e["tx_hash"],
+                "status": "success" if e["tx_hash"] and e["tx_hash"] != "simulated_hash" else "simulated",
+                "created_at": e["created_at"],
+            }
+            for e in events
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ import { Zap, LogOut, Wifi, Copy, CheckCheck, Loader2 } from "lucide-react";
 import { ChatWindow, Message } from "@/components/chat/ChatWindow";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ApprovalCard } from "@/components/chat/ApprovalCard";
-import { TransactionHistory } from "@/components/chat/TransactionHistory";
+import { PortfolioView } from "@/components/chat/PortfolioView";
 import { Button } from "@/components/ui/button";
 import {
   postChat,
@@ -17,8 +17,6 @@ import {
   clearAllSessionData,
   getStoredMessages,
   setStoredMessages,
-  getStoredTransactions,
-  setStoredTransactions,
   PersistedMessage,
   PendingApproval,
   getPendingApproval,
@@ -74,15 +72,15 @@ export default function Home() {
   const { login, authenticated, logout, user, ready } = usePrivy();
 
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
-  const [transactions, setTransactions] = useState<TxResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [portfolioRefresh, setPortfolioRefresh] = useState(0);
 
   const walletAddress = user?.wallet?.address ?? null;
 
   const handleApproveSuccess = (results: TxResult[]) => {
-    setTransactions((prev) => [...prev, ...results]);
     clearPendingApproval();
+    setPortfolioRefresh((n) => n + 1);
     const lines = results
       .map(
         (tx) =>
@@ -157,7 +155,6 @@ export default function Home() {
   useEffect(() => {
     const storedMsgs = getStoredMessages();
     const pending = getPendingApproval();
-    const storedTxs = getStoredTransactions();
 
     let msgs: Message[] =
       storedMsgs.length > 0
@@ -189,7 +186,6 @@ export default function Home() {
     }
 
     setMessages(msgs);
-    if (storedTxs.length > 0) setTransactions(storedTxs);
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -203,12 +199,6 @@ export default function Home() {
       .map((m) => ({ id: m.id, role: m.role, content: m.content as string }));
     setStoredMessages(serialisable);
   }, [messages, hydrated]);
-
-  // Persist transactions on every change
-  useEffect(() => {
-    if (!hydrated) return;
-    setStoredTransactions(transactions);
-  }, [transactions, hydrated]);
 
   // -------------------------------------------------------------------------
   // Auth — issue JWT when wallet connects (never clear data on refresh)
@@ -225,7 +215,7 @@ export default function Home() {
   const handleLogout = () => {
     clearAllSessionData();
     setMessages([WELCOME_MESSAGE]);
-    setTransactions([]);
+    setPortfolioRefresh(0);
     logout();
   };
 
@@ -312,7 +302,7 @@ export default function Home() {
               .join("\n")}`,
           },
         ]);
-        setTransactions((prev) => [...prev, ...response.tx_results!]);
+        setPortfolioRefresh((n) => n + 1);
       } else {
         setMessages((prev) => [
           ...prev,
@@ -422,19 +412,12 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Transaction history sidebar */}
+          {/* Portfolio sidebar */}
           <aside className="hidden w-72 shrink-0 flex-col border-l border-border/20 bg-background/30 backdrop-blur-sm md:flex">
-            <div className="flex items-center justify-between border-b border-border/20 px-4 py-3">
-              <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                Transactions
-              </span>
-              {transactions.length > 0 && (
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
-                  {transactions.length}
-                </span>
-              )}
-            </div>
-            <TransactionHistory transactions={transactions} />
+            <PortfolioView
+              refreshTrigger={portfolioRefresh}
+              enabled={ready && !!walletAddress}
+            />
           </aside>
         </div>
       ) : (

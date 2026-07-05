@@ -103,3 +103,68 @@ def get_wallet_position_usd(wallet_address: str, agent_id: str) -> float:
             (wallet, str(agent_id)),
         ).fetchone()
     return float(row["total"]) if row else 0.0
+
+
+def get_portfolio(wallet_address: str) -> list[dict]:
+    """Aggregated active positions per agent for a wallet."""
+    wallet = wallet_address.lower()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                p.agent_id,
+                (
+                    SELECT p2.agent_name
+                    FROM positions p2
+                    WHERE p2.wallet_address = p.wallet_address
+                      AND p2.agent_id = p.agent_id
+                      AND p2.status = 'active'
+                    ORDER BY p2.created_at DESC
+                    LIMIT 1
+                ) AS agent_name,
+                (
+                    SELECT p2.vault_address
+                    FROM positions p2
+                    WHERE p2.wallet_address = p.wallet_address
+                      AND p2.agent_id = p.agent_id
+                      AND p2.status = 'active'
+                    ORDER BY p2.created_at DESC
+                    LIMIT 1
+                ) AS vault_address,
+                SUM(p.amount_usd) AS amount_usd,
+                COUNT(*) AS deposit_count,
+                MAX(p.created_at) AS last_deposit_at
+            FROM positions p
+            WHERE p.wallet_address = ? AND p.status = 'active'
+            GROUP BY p.agent_id
+            ORDER BY amount_usd DESC
+            """,
+            (wallet,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_position_history(wallet_address: str, *, limit: int = 100) -> list[dict]:
+    """Chronological deposit/withdraw events for a wallet."""
+    wallet = wallet_address.lower()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                e.id,
+                e.event_type,
+                e.amount_usd,
+                e.tx_hash,
+                e.created_at,
+                p.agent_id,
+                p.agent_name,
+                p.vault_address
+            FROM position_events e
+            JOIN positions p ON p.id = e.position_id
+            WHERE p.wallet_address = ?
+            ORDER BY e.created_at DESC
+            LIMIT ?
+            """,
+            (wallet, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]

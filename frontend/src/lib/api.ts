@@ -75,32 +75,6 @@ export function setStoredMessages(messages: PersistedMessage[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// Persisted transactions
-// ---------------------------------------------------------------------------
-export function getStoredTransactions(): TxResult[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(TRANSACTIONS_KEY);
-    return raw ? (JSON.parse(raw) as TxResult[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-export function setStoredTransactions(txs: TxResult[]): void {
-  if (typeof window !== "undefined") {
-    const seen = new Set<string>();
-    const unique = txs.filter((tx) => {
-      const key = tx.tx_hash || `${tx.agent_id}-${tx.amount_usd}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(unique));
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Clear all session data (call on logout)
 // ---------------------------------------------------------------------------
 export function clearAllSessionData(): void {
@@ -172,6 +146,43 @@ export interface TxResult {
   tx_hash: string;
   amount_usd: number;
   status: "success" | "failed";
+}
+
+export interface PortfolioPosition {
+  agent_id: string;
+  agent_name: string;
+  strategy: string;
+  vault_address: string;
+  amount_usd: number;
+  deposit_count: number;
+  last_deposit_at: string | null;
+  reputation_score: number | null;
+  vault_tvl_usd: number;
+}
+
+export interface PortfolioResponse {
+  wallet_address: string;
+  total_usd: number;
+  position_count: number;
+  positions: PortfolioPosition[];
+}
+
+export interface PortfolioHistoryEvent {
+  id: number;
+  event_type: string;
+  agent_id: string;
+  agent_name: string;
+  vault_address: string;
+  amount_usd: number;
+  tx_hash: string;
+  status: "success" | "simulated";
+  created_at: string;
+}
+
+export interface PortfolioHistoryResponse {
+  wallet_address: string;
+  event_count: number;
+  events: PortfolioHistoryEvent[];
 }
 
 export interface AgentReputation {
@@ -267,6 +278,30 @@ export async function postApprove(thread_id: string): Promise<ChatResponse> {
     throw new Error(err.detail ?? "Failed to approve allocation");
   }
   clearStoredThreadId();
+  return res.json();
+}
+
+/** Aggregated active positions from the server ledger. */
+export async function getPortfolio(): Promise<PortfolioResponse> {
+  const res = await fetch(`${API_URL}/portfolio`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { detail?: string };
+    throw new Error(err.detail ?? "Failed to load portfolio");
+  }
+  return res.json();
+}
+
+/** Deposit history from the server ledger. */
+export async function getPortfolioHistory(limit = 100): Promise<PortfolioHistoryResponse> {
+  const res = await fetch(`${API_URL}/portfolio/history?limit=${limit}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { detail?: string };
+    throw new Error(err.detail ?? "Failed to load portfolio history");
+  }
   return res.json();
 }
 
