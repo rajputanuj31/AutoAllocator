@@ -7,6 +7,7 @@ import { Zap, LogOut, Wifi, Copy, CheckCheck, Loader2 } from "lucide-react";
 import { ChatWindow, Message } from "@/components/chat/ChatWindow";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ApprovalCard } from "@/components/chat/ApprovalCard";
+import { WithdrawApprovalCard } from "@/components/chat/WithdrawApprovalCard";
 import { PortfolioView } from "@/components/chat/PortfolioView";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,7 +36,7 @@ const WELCOME_MESSAGE: Message = {
   id: "welcome",
   role: "bot",
   content:
-    "Hello! I'm the AutoAllocator AI.\n\nDescribe your investment goal and I'll discover reputation-verified DeFi agents on Base Sepolia, propose a USDC allocation, and execute it with your approval.\n\nTry: \"Earn yield on 5 000 USDC safely\"",
+    "Hello! I'm the AutoAllocator AI.\n\nDescribe your investment goal and I'll discover reputation-verified DeFi agents on Base Sepolia, propose a USDC allocation, and execute it with your approval.\n\nYou need Base Sepolia USDC + a little ETH for gas in your connected wallet.\n\nTry: \"Earn yield on 5 USDC safely\"\nOr withdraw: \"Withdraw 3 USDC from StableFarmer\"",
 };
 
 // ---------------------------------------------------------------------------
@@ -78,7 +79,7 @@ export default function Home() {
 
   const walletAddress = user?.wallet?.address ?? null;
 
-  const handleApproveSuccess = (results: TxResult[]) => {
+  const handleApproveSuccess = (results: TxResult[], flowType: "invest" | "withdraw" = "invest") => {
     clearPendingApproval();
     setPortfolioRefresh((n) => n + 1);
     const lines = results
@@ -90,7 +91,10 @@ export default function Home() {
             : "")
       )
       .join("\n");
-    const content = `✅ Allocation executed successfully.\n\n${lines}`;
+    const content =
+      flowType === "withdraw"
+        ? `✅ Withdrawal executed successfully.\n\n${lines}`
+        : `✅ Allocation executed successfully.\n\n${lines}`;
     setMessages((prev) =>
       prev.map((m) =>
         m.id.startsWith("approval-")
@@ -100,7 +104,7 @@ export default function Home() {
     );
   };
 
-  const handleRejectSuccess = () => {
+  const handleRejectSuccess = (flowType: "invest" | "withdraw" = "invest") => {
     clearPendingApproval();
     setMessages((prev) =>
       prev.map((m) =>
@@ -108,7 +112,10 @@ export default function Home() {
           ? {
               id: m.id.replace("approval-", "outcome-"),
               role: "bot",
-              content: "Allocation rejected. No funds were transferred.",
+              content:
+                flowType === "withdraw"
+                  ? "Withdrawal rejected. No funds were transferred."
+                  : "Allocation rejected. No funds were transferred.",
             }
           : m
       )
@@ -126,9 +133,31 @@ export default function Home() {
       return true;
     });
 
-  const makeApprovalMessages = (
-    pending: PendingApproval
-  ): Message[] => [
+  const renderApprovalCard = (pending: PendingApproval) => {
+    if (pending.flowType === "withdraw" && pending.destinationWallet) {
+      return (
+        <WithdrawApprovalCard
+          threadId={pending.threadId}
+          allocation={pending.allocation}
+          destinationWallet={pending.destinationWallet}
+          onApproveSuccess={(r) => handleApproveSuccess(r, "withdraw")}
+          onRejectSuccess={() => handleRejectSuccess("withdraw")}
+        />
+      );
+    }
+    return (
+      <ApprovalCard
+        threadId={pending.threadId}
+        walletAddress={walletAddress ?? ""}
+        allocation={pending.allocation}
+        agentProfiles={pending.agentProfiles}
+        onApproveSuccess={(r) => handleApproveSuccess(r, "invest")}
+        onRejectSuccess={() => handleRejectSuccess("invest")}
+      />
+    );
+  };
+
+  const makeApprovalMessages = (pending: PendingApproval): Message[] => [
     {
       id: `summary-${pending.threadId}`,
       role: "bot",
@@ -137,15 +166,7 @@ export default function Home() {
     {
       id: `approval-${pending.threadId}`,
       role: "bot",
-      content: (
-        <ApprovalCard
-          threadId={pending.threadId}
-          allocation={pending.allocation}
-          agentProfiles={pending.agentProfiles}
-          onApproveSuccess={handleApproveSuccess}
-          onRejectSuccess={handleRejectSuccess}
-        />
-      ),
+      content: renderApprovalCard(pending),
     },
   ];
 
@@ -156,7 +177,7 @@ export default function Home() {
     const storedMsgs = getStoredMessages();
     const pending = getPendingApproval();
 
-    let msgs: Message[] =
+    const msgs: Message[] =
       storedMsgs.length > 0
         ? storedMsgs
             .filter(
@@ -171,17 +192,21 @@ export default function Home() {
         : [WELCOME_MESSAGE];
 
     if (pending) {
-      const hasApproval = msgs.some((m) => m.id === `approval-${pending.threadId}`);
+      const normalized: PendingApproval = {
+        ...pending,
+        flowType: pending.flowType ?? "invest",
+      };
+      const hasApproval = msgs.some((m) => m.id === `approval-${normalized.threadId}`);
       if (!hasApproval) {
-        const hasSummary = msgs.some((m) => m.id === `summary-${pending.threadId}`);
+        const hasSummary = msgs.some((m) => m.id === `summary-${normalized.threadId}`);
         if (!hasSummary) {
           msgs.push({
-            id: `summary-${pending.threadId}`,
+            id: `summary-${normalized.threadId}`,
             role: "bot",
-            content: pending.summaryLine,
+            content: normalized.summaryLine,
           });
         }
-        msgs.push(...makeApprovalMessages(pending).filter((m) => m.id.startsWith("approval-")));
+        msgs.push(...makeApprovalMessages(normalized).filter((m) => m.id.startsWith("approval-")));
       }
     }
 
@@ -246,17 +271,36 @@ export default function Home() {
           action?: string;
           amount_usd?: number;
           risk_tolerance?: string;
+          target_agent?: string;
         } | null;
 
-        const summaryLine = intent
-          ? `Found ${response.allocation.length} agent${response.allocation.length !== 1 ? "s" : ""} for your ${intent.risk_tolerance ?? ""} ${intent.action ?? "investment"} of $${intent.amount_usd?.toFixed(0) ?? "?"} USDC.`
-          : `Found ${response.allocation.length} suitable agent${response.allocation.length !== 1 ? "s" : ""}. Review the proposed allocation below.`;
+        const flowType = response.flow_type ?? (intent?.action === "withdraw" ? "withdraw" : "invest");
+        const totalUsd = response.allocation.reduce((s, a) => s + a.amount_usd, 0);
+
+        let summaryLine: string;
+        if (flowType === "withdraw") {
+          const dest = response.destination_wallet ?? walletAddress ?? "your wallet";
+          const destShort = dest ? `${dest.slice(0, 6)}…${dest.slice(-4)}` : "your wallet";
+          if (intent?.target_agent) {
+            summaryLine = `Ready to withdraw $${totalUsd.toFixed(2)} USDC from ${intent.target_agent} to ${destShort}.`;
+          } else if (intent?.amount_usd && intent.amount_usd > 0) {
+            summaryLine = `Ready to withdraw $${totalUsd.toFixed(2)} USDC across your positions to ${destShort}.`;
+          } else {
+            summaryLine = `Ready to withdraw all $${totalUsd.toFixed(2)} USDC to ${destShort}.`;
+          }
+        } else {
+          summaryLine = intent
+            ? `Found ${response.allocation.length} agent${response.allocation.length !== 1 ? "s" : ""} for your ${intent.risk_tolerance ?? ""} ${intent.action ?? "investment"} of $${intent.amount_usd?.toFixed(0) ?? "?"} USDC.`
+            : `Found ${response.allocation.length} suitable agent${response.allocation.length !== 1 ? "s" : ""}. Review the proposed allocation below.`;
+        }
 
         const pending: PendingApproval = {
           threadId: response.thread_id,
+          flowType,
           allocation: response.allocation!,
           agentProfiles: response.agent_profiles,
           summaryLine,
+          destinationWallet: response.destination_wallet ?? walletAddress ?? undefined,
         };
         setPendingApproval(pending);
 
@@ -272,15 +316,7 @@ export default function Home() {
             {
               id: `approval-${response.thread_id}`,
               role: "bot",
-              content: (
-                <ApprovalCard
-                  threadId={response.thread_id}
-                  allocation={response.allocation!}
-                  agentProfiles={response.agent_profiles}
-                  onApproveSuccess={handleApproveSuccess}
-                  onRejectSuccess={handleRejectSuccess}
-                />
-              ),
+              content: renderApprovalCard(pending),
             },
           ];
         });
@@ -445,7 +481,7 @@ export default function Home() {
               {[
                 { icon: "🔍", title: "Discover", desc: "ERC-8004 on-chain agents" },
                 { icon: "⭐", title: "Filter", desc: "Reputation score ≥ 400" },
-                { icon: "⚡", title: "Execute", desc: "USDC via Coinbase CDP" },
+                { icon: "⚡", title: "Execute", desc: "USDC from your wallet" },
               ].map((f) => (
                 <div
                   key={f.title}

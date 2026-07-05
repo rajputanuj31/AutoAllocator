@@ -91,9 +91,11 @@ export function clearAllSessionData(): void {
 // ---------------------------------------------------------------------------
 export interface PendingApproval {
   threadId: string;
+  flowType: "invest" | "withdraw";
   allocation: AgentAllocation[];
   agentProfiles?: AgentProfile[];
   summaryLine: string;
+  destinationWallet?: string;
 }
 
 export function getPendingApproval(): PendingApproval | null {
@@ -209,6 +211,8 @@ export interface AgentProfile {
 
 export interface ChatResponse {
   thread_id: string;
+  flow_type?: "invest" | "withdraw";
+  destination_wallet?: string | null;
   parsed_intent?: unknown;
   candidates?: AgentCandidate[];
   allocation?: AgentAllocation[];
@@ -266,7 +270,7 @@ export async function postChat(message: string): Promise<ChatResponse> {
   return data;
 }
 
-/** Resume a paused graph and execute on-chain transfers. */
+/** Resume a paused withdraw flow. */
 export async function postApprove(thread_id: string): Promise<ChatResponse> {
   const res = await fetch(`${API_URL}/approve`, {
     method: "POST",
@@ -276,6 +280,24 @@ export async function postApprove(thread_id: string): Promise<ChatResponse> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as { detail?: string };
     throw new Error(err.detail ?? "Failed to approve allocation");
+  }
+  clearStoredThreadId();
+  return res.json();
+}
+
+/** Confirm wallet-signed USDC deposits after invest approval. */
+export async function postInvestConfirm(
+  thread_id: string,
+  tx_results: TxResult[]
+): Promise<ChatResponse> {
+  const res = await fetch(`${API_URL}/invest/confirm`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ thread_id, tx_results }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { detail?: string };
+    throw new Error(err.detail ?? "Failed to confirm investment");
   }
   clearStoredThreadId();
   return res.json();

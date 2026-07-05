@@ -1,13 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { useWallets } from "@privy-io/react-auth";
 import {
   AgentAllocation,
   AgentProfile,
   TxResult,
-  postApprove,
   postCancel,
+  postInvestConfirm,
 } from "@/lib/api";
+import {
+  ensureBaseSepolia,
+  sendUsdcTransfer,
+  waitForTxReceipt,
+} from "@/lib/usdc";
 import { AgentDetailPanel } from "@/components/chat/AgentDetailPanel";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +31,7 @@ type CardState = "pending" | "approving" | "approved" | "rejected" | "error";
 
 interface ApprovalCardProps {
   threadId: string;
+  walletAddress: string;
   allocation: AgentAllocation[];
   agentProfiles?: AgentProfile[];
   /** Called after on-chain transactions succeed — parent uses this to update tx history. */
@@ -133,11 +140,13 @@ function SkeletonRow() {
 
 export function ApprovalCard({
   threadId,
+  walletAddress,
   allocation,
   agentProfiles = [],
   onApproveSuccess,
   onRejectSuccess,
 }: ApprovalCardProps) {
+  const { wallets } = useWallets();
   const [cardState, setCardState] = useState<CardState>("pending");
   const [txResults, setTxResults] = useState<TxResult[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -151,11 +160,40 @@ export function ApprovalCard({
   const handleApprove = async () => {
     setCardState("approving");
     try {
-      const response = await postApprove(threadId);
-      const results = response.tx_results ?? [];
-      setTxResults(results);
+      const wallet =
+        wallets.find(
+          (w) => w.address.toLowerCase() === walletAddress.toLowerCase()
+        ) ?? wallets[0];
+
+      if (!wallet) {
+        throw new Error("No connected wallet found. Reconnect and try again.");
+      }
+
+      const provider = await wallet.getEthereumProvider();
+      await ensureBaseSepolia(provider);
+
+      const results: TxResult[] = [];
+      for (const agent of allocation) {
+        const hash = await sendUsdcTransfer(
+          provider,
+          wallet.address,
+          agent.vault_address,
+          agent.amount_usd
+        );
+        await waitForTxReceipt(provider, hash);
+        results.push({
+          agent_id: agent.agent_id,
+          tx_hash: hash,
+          amount_usd: agent.amount_usd,
+          status: "success",
+        });
+      }
+
+      const response = await postInvestConfirm(threadId, results);
+      const confirmed = response.tx_results ?? results;
+      setTxResults(confirmed);
       setCardState("approved");
-      onApproveSuccess(results);
+      onApproveSuccess(confirmed);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Execution failed";
       setErrorMsg(msg);
@@ -190,8 +228,8 @@ export function ApprovalCard({
               <span className="font-semibold text-foreground">
                 ${totalAmount.toFixed(2)} USDC
               </span>{" "}
-              across {allocation.length} agent
-              {allocation.length !== 1 ? "s" : ""} — review before executing
+              from your wallet across {allocation.length} agent
+              {allocation.length !== 1 ? "s" : ""} — review before signing
             </p>
           </div>
         </div>
@@ -221,7 +259,7 @@ export function ApprovalCard({
             className="flex-1 h-9 text-sm bg-primary text-primary-foreground shadow-[0_0_16px_oklch(0.62_0.22_264_/_0.30)] hover:shadow-[0_0_22px_oklch(0.62_0.22_264_/_0.45)] hover:bg-primary/90 transition-all"
             onClick={handleApprove}
           >
-            Approve &amp; Execute
+            Approve &amp; Sign
             <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
           </Button>
         </div>
@@ -240,9 +278,9 @@ export function ApprovalCard({
             <Loader2 className="h-4 w-4 text-primary animate-spin" />
           </div>
           <div>
-            <p className="font-semibold text-foreground text-sm">Executing On-Chain</p>
+            <p className="font-semibold text-foreground text-sm">Signing Transactions</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Sending USDC transfers via Coinbase CDP…
+              Approve USDC transfers from your wallet on Base Sepolia…
             </p>
           </div>
         </div>
