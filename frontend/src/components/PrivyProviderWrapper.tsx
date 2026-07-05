@@ -19,7 +19,9 @@ export default function PrivyProviderWrapper({
           logo: "https://cryptologos.cc/logos/base-base-logo.svg",
         },
         embeddedWallets: {
-          createOnLogin: "users-without-wallets",
+          ethereum: {
+            createOnLogin: "users-without-wallets",
+          },
         },
         defaultChain: baseSepolia,
         supportedChains: [baseSepolia],
