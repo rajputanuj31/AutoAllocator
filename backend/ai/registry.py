@@ -1,5 +1,7 @@
 # Shared web3.py client and contract instances for ERC-8004 registries.
 # Call get_contracts() once at startup; reuse across nodes.
+#
+# ABIs are official copies pinned from erc-8004/erc-8004-contracts — see abis/CONTRACTS.md.
 
 import json
 import os
@@ -7,7 +9,8 @@ from pathlib import Path
 
 from web3 import Web3
 
-IDENTITY_REGISTRY_ADDRESS  = "0x8004A818BFB912233c491871b3d84c89A494BD9e"
+# Canonical Base Sepolia deployments (CREATE2 testnet addresses from ERC-8004).
+IDENTITY_REGISTRY_ADDRESS = "0x8004A818BFB912233c491871b3d84c89A494BD9e"
 REPUTATION_REGISTRY_ADDRESS = "0x8004B663056A597Dffe9eCcC1965A193B7388713"
 
 _ABIS_DIR = Path(__file__).parent / "abis"

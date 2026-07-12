@@ -67,6 +67,8 @@ frontend/    Web app
 scripts/     Agent config (vault addresses)
 ```
 
+ERC-8004 Identity / Reputation ABIs are pinned from the official contracts repo — see [`backend/ai/abis/CONTRACTS.md`](backend/ai/abis/CONTRACTS.md).
+
 ---
 
 Reputation-gated capital routing on Base Sepolia — agents earn trust on-chain, humans stay in the loop.
